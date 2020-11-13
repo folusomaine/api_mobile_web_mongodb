@@ -22,6 +22,7 @@ jwt = JWTManager(app)
 
 CORS(app)
 
+# user register endpoint
 @app.route("/api/users/register", methods=["POST"])
 def register():
     users = mongo.db.users 
@@ -34,8 +35,10 @@ def register():
     created = datetime.utcnow()
     uid = str(int(hashlib.md5((firstName + lastName + email + phone).encode("utf-8")).hexdigest(), 16))[0:6] ### unique user id
 
+    # verify user exist
     existing_user = users.find_one({"email": email})
 
+    # update db with user data
     if existing_user is None:
         user_id = users.insert({
         "firstName": firstName,
@@ -55,6 +58,7 @@ def register():
             "message": new_user["email"] + " registered and activation link sent to your email"
             }), 201
         
+        # user confirmation email with activation url logic here
         token = s.dumps(email, salt="email-confirm")
         msg = Message("Confirm Email", sender="admin@test.com", recipients=[email])
         link = url_for("confirm_email", token=token, _external=True)
@@ -65,11 +69,15 @@ def register():
     return result
 
 
-@app.route("/api/users/register/confirm_email/<token>") # Activation link url prefix
+# activation link url prefix
+@app.route("/api/users/register/confirm_email/<token>")
 def confirm_email(token):
+    # logic to validate token and confirm user
     try:
         email = s.loads(token, salt="email-confirm", max_age=3600)
         users = mongo.db.users
+
+        # update emailConfirm when user clicks activation link
         users.find_one_and_update(
             {"email": email},
             {"$set":
@@ -87,7 +95,7 @@ def confirm_email(token):
     flash("Your email is confirmed and account activated! Please login to continue", "success")
     return redirect(url_for("user_login"))
 
-
+# user login endpoint
 @app.route("/api/users/login", methods=["POST"])
 def login():
     users = mongo.db.users 
@@ -97,6 +105,7 @@ def login():
 
     response = users.find_one({"email": email})
 
+    # multiple logic to verify user exists, confirmed and password valid
     if response:
         if response["emailConfirm"] == True:
             if bcrypt.check_password_hash(response["password"], password):
@@ -119,13 +128,14 @@ def login():
         result = jsonify({"message": "No results found"}), 403
     return result
 
-
+# user reset password begins here
 @app.route("/api/users/reset_password", methods=["GET", "POST"])
 def reset_password():
     users = mongo.db.users
     email = request.get_json()["email"]
     user_exist = users.find_one({"email": email})
 
+    # verify user and send reset link/token
     if user_exist:
         token = s.dumps(email, salt="reset-password-salt")
         msg = Message("Password Reset", sender="admin@test.com", recipients=[email])
@@ -151,6 +161,7 @@ def reset_token(token):
                 pass
         flash("The token is expired or invalid.", "danger")
         return redirect(url_for("user_login"))
+    # import form to collect new password and update db with new pass
     form = ResetPasswordForm()
     if form.validate_on_submit():
         hashed_password = bcrypt.generate_password_hash(form.password.data).decode("utf-8")
